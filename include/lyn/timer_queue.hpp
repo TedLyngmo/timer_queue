@@ -25,6 +25,7 @@ For more information, please refer to <https://unlicense.org>
 
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -54,6 +55,10 @@ namespace mq {
 
     private:
         struct TimedEvent {
+            template<class... EvArgs>
+            TimedEvent(const time_point& tp, EvArgs&&... args) :
+                StartTime{tp}, m_event{std::forward<EvArgs>(args)...} {}
+
             bool operator<(const TimedEvent& rhs) const { return rhs.StartTime < StartTime; }
             time_point StartTime;
             event_type m_event;
@@ -165,35 +170,43 @@ namespace mq {
             }
         }
 
-        void emplace_do_at(time_point tp, event_type ev) {
+        template<class... EvArgs>
+        void emplace_do_at(time_point tp, EvArgs&&... args) {
             std::lock_guard<std::mutex> lock(m_mutex);
 
-            m_queue.emplace(TimedEvent{tp, std::move(ev)});
+            m_queue.emplace(tp, std::forward<EvArgs>(args)...);
             m_seq += std::chrono::nanoseconds(1); // used by emplace_do_urgently
             m_cv.notify_all();
         }
 
-        void emplace_do_in(duration dur, event_type ev) {
+        template<class... EvArgs>
+        void emplace_do_in(duration dur, EvArgs&&... args) {
             std::lock_guard<std::mutex> lock(m_mutex);
 
-            m_queue.emplace(TimedEvent{clock_type::now() + dur, std::move(ev)});
+            m_queue.emplace(clock_type::now() + dur, std::forward<EvArgs>(args)...);
             m_cv.notify_all();
         }
 
-        void emplace_do(event_type ev) { emplace_do_in(m_now_delay, std::move(ev)); }
+        template<class... EvArgs>
+        void emplace_do(EvArgs&&... args) {
+            emplace_do_in(m_now_delay, std::forward<EvArgs>(args)...);
+        }
 
-        void emplace_do_urgently(event_type ev) { emplace_do_at(m_seq, std::move(ev)); }
+        template<class... EvArgs>
+        void emplace_do_urgently(EvArgs&&... args) {
+            emplace_do_at(m_seq, std::forward<EvArgs>(args)...);
+        }
 
         // Add a bunch of events using iterators. Events will be processed in the order they are added.
         template<class Iter>
-        std::enable_if_t<std::is_same_v<event_type, typename std::iterator_traits<Iter>::value_type>> emplace_schedule(
-            Iter first, Iter last) {
+        std::enable_if_t<std::is_same_v<event_type, typename std::iterator_traits<Iter>::value_type>> //
+        emplace_schedule(Iter first, Iter last) {
             auto T0 = clock_type::now() + m_now_delay;
             std::chrono::nanoseconds event_order{0};
 
             std::lock_guard<std::mutex> lock(m_mutex);
             for(; first != last; ++first) {
-                m_queue.emplace(TimedEvent{T0 + event_order, *first});
+                m_queue.emplace(T0 + event_order, *first);
                 event_order += std::chrono::nanoseconds(1);
             }
             m_cv.notify_all();
@@ -206,7 +219,7 @@ namespace mq {
             std::lock_guard<std::mutex> lock(m_mutex);
             for(; first != last; ++first) {
                 auto&& [tp, ev] = *first;
-                m_queue.emplace(TimedEvent{tp, ev});
+                m_queue.emplace(tp, ev);
             }
             m_cv.notify_all();
         }
