@@ -106,12 +106,18 @@ namespace mq {
             m_cv.notify_all();
         }
 
+        void restart() { m_shutdown = false; }
+
         void clear() {
             std::lock_guard<std::mutex> lock(m_mutex);
             m_queue = queue_type{};
         }
 
-        void restart() { m_shutdown = false; }
+        void set_delay_until(time_point tp) {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            // don't let it move backwards in time
+            if(m_delay_until < tp) m_delay_until = std::move(tp);
+        }
 
         bool is_open() const { return !m_shutdown; }
         bool operator!() const { return m_shutdown; }
@@ -173,41 +179,57 @@ namespace mq {
         template<class... EvArgs>
         void emplace_do_at(time_point tp, EvArgs&&... args) {
             std::lock_guard<std::mutex> lock(m_mutex);
-
             m_queue.emplace(tp, std::forward<EvArgs>(args)...);
-            m_seq += std::chrono::nanoseconds(1); // used by emplace_do_urgently
             m_cv.notify_all();
         }
 
         template<class... EvArgs>
         void emplace_do_in(duration dur, EvArgs&&... args) {
+            auto attime = clock_type::now() + dur;
             std::lock_guard<std::mutex> lock(m_mutex);
-
-            m_queue.emplace(clock_type::now() + dur, std::forward<EvArgs>(args)...);
+            m_queue.emplace(attime, std::forward<EvArgs>(args)...);
             m_cv.notify_all();
         }
 
         template<class... EvArgs>
         void emplace_do(EvArgs&&... args) {
-            emplace_do_in(m_now_delay, std::forward<EvArgs>(args)...);
+            auto now = clock_type::now();
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if(now < m_delay_until) {
+                now = m_delay_until;
+                m_delay_until += std::chrono::nanoseconds(1);
+            } else {
+                now += m_now_delay;
+            }
+            m_queue.emplace(now, std::forward<EvArgs>(args)...);
+            m_cv.notify_all();
         }
 
         template<class... EvArgs>
         void emplace_do_urgently(EvArgs&&... args) {
-            emplace_do_at(m_seq, std::forward<EvArgs>(args)...);
+            std::lock_guard<std::mutex> lock(m_mutex);
+            m_queue.emplace(m_seq, std::forward<EvArgs>(args)...);
+            m_seq += std::chrono::nanoseconds(1);
+            m_cv.notify_all();
         }
 
         // Add a bunch of events using iterators. Events will be processed in the order they are added.
         template<class Iter>
         std::enable_if_t<std::is_same_v<event_type, typename std::iterator_traits<Iter>::value_type>> //
         emplace_schedule(Iter first, Iter last) {
-            auto T0 = clock_type::now() + m_now_delay;
-            std::chrono::nanoseconds event_order{0};
-
+            auto now = clock_type::now();
             std::lock_guard<std::mutex> lock(m_mutex);
-            for(; first != last; ++first) {
-                m_queue.emplace(T0 + event_order, *first);
-                event_order += std::chrono::nanoseconds(1);
+            if(now < m_delay_until) {
+                for(; first != last; ++first) {
+                    m_queue.emplace(m_delay_until, *first);
+                    m_delay_until += std::chrono::nanoseconds(1);
+                }
+            } else {
+                now += m_now_delay;
+                for(; first != last; ++first) {
+                    m_queue.emplace(now, *first);
+                    now += std::chrono::nanoseconds(1);
+                }
             }
             m_cv.notify_all();
         }
@@ -328,6 +350,7 @@ namespace mq {
         std::condition_variable m_cv{};
         std::atomic<bool> m_shutdown{};
         duration m_now_delay;
+        time_point m_delay_until{};
         // m_seq is used for to make sure events are executed in the order they are put in the queue which can be used
         // to extend the queue with adding a bunch of elements at the same time and to guarantee them to be extracted
         // together in the exact order they were put in.
@@ -340,8 +363,9 @@ namespace mq {
     public:
         using event_type = typename queue_type::event_type;
         timer_queue_registrator() = delete;
+        // cast return from tq.reg() to queue_type& in case of inheritance
         timer_queue_registrator(queue_type& tq) : m_tq(&static_cast<queue_type&>(tq.reg())) {}
-        timer_queue_registrator(std::reference_wrapper<queue_type> tq) : timer_queue_registrator(tq.get()) {}
+        timer_queue_registrator(std::reference_wrapper<queue_type> tqrw) : timer_queue_registrator(tqrw.get()) {}
 
         timer_queue_registrator(const timer_queue_registrator&) = delete;
         timer_queue_registrator(timer_queue_registrator&& other) noexcept : m_tq{std::exchange(other.m_tq, nullptr)} {}

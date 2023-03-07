@@ -56,14 +56,14 @@ A timer queue provides constant time lookup of the first event to timeout, at th
 
 | ![](./svg/spacer.svg)<br>Functions to add single events | |
 |-|-|
-|`void emplace_do(event_type ev)`| Add an event that is due after `now_delay` |
+|`void emplace_do(event_type ev)`| Add an event that is due after `now_delay`. This is also affected by `set_delay_until` (see below). |
 |`void emplace_do_urgently(event_type ev)`| Add an event, placing the event last among those added with `emplace_do_urgently`, but before all other events in queue |
 |`void emplace_do_at(time_point tp, event_type ev)` | Add an event that is due at the specified `time_point` |
 |`void emplace_do_in(duration dur, event_type)` | Add an event that is due after the specified `duration` |
 
 | ![](./svg/spacer.svg)<br>Functions to add events in bulk | |
 |-|-|
-|`template<class Iter>`<br>`void emplace_schedule(Iter first, Iter last)` | Place a number of events in queue. This overload only participates in overload resolution if `std::iterator_traits<Iter>::value_type` is `event_type`.|
+|`template<class Iter>`<br>`void emplace_schedule(Iter first, Iter last)` | Place a number of events in queue that are due after `now_delay`. This overload only participates in overload resolution if `std::iterator_traits<Iter>::value_type` is `event_type`. This overload is also affected by `set_delay_until` (see below). |
 |`template<class Iter>`<br>`void emplace_schedule(Iter first, Iter last)` | Place a number of events in queue. This overload only participates in overload resolution if `std::iterator_traits<Iter>::value_type` is `schedule_at_type`.|
 |`template<class Iter>`<br>`void emplace_schedule(Iter first, Iter last)` | Place a number of events in queue in relation to `clock_type::now()`. This overload only participates in overload resolution if `std::iterator_traits<Iter>::value_type` is `schedule_in_type`.|
 |`template<class Iter>`<br>`void emplace_schedule(time_point T0, Iter first, Iter last)` | Place a number of events in queue in relation to `T0`. This overload only participates in overload resolution if `std::iterator_traits<Iter>::value_type` is `schedule_in_type`.|
@@ -77,10 +77,11 @@ A timer queue provides constant time lookup of the first event to timeout, at th
 | ![](./svg/spacer.svg)<br>Functions to extract events | |
 |-|-|
 |`bool wait_pop(event_type& ev)` | Wait until an event is due and populate `ev`. Returns `true` if an event was successfully extracted or `false` if the queue was shutdown. |
-|`bool wait_pop_all(queue_type& in_out)` | Wait until an event is due and extracts all events that are due. Returns `true` unless the queue was shutdown in which case it returns `false`. Use `in_out.pop(event_type&)` to extract events in a lock-free way|
+|`bool wait_pop_all(queue_type& in_out)` | Wait until an event is due and extracts all events that are due. Returns `true` unless the queue was shutdown in which case it returns `false`. Use `in_out.pop(event_type&)` to extract events in a lock-free way. If there is only one thread processing events put in the queue and adding events to the queue is only done using `emplace_do` or `emplace_schedule` (where `std::iterator_traits<Iter>::value_type` is `event_type`), using `wait_pop_all` may be more efficient than extracting one event at a time with `wait_pop`. |
 
 | ![](./svg/spacer.svg)<br>Misc. rarely used | |
 |-|-|
+|`void set_delay_until(time_point tp)`|Delay all events added with `emplace_do` and `emplace_schedule` (where `std::iterator_traits<Iter>::value_type` is `event_type`) until the supplied `time_point`. Events added while `tp` has not yet occured will be processed in the order they were added, only delayed until after `tp`.|
 | `void shutdown()` | Shutdown the queue, leaving unprocessed events in the queue |
 | `void clear()` | Removes unprocessed events from the queue |
 | `void restart()` | Restarts the queue with unprocessed events intact |
@@ -117,7 +118,7 @@ A `timer_queue_registrator` is a RAII wrapper used to register a user (usually a
 |-|-|
 |`timer_queue_registrator() = delete` | |
 |`timer_queue_registrator(queue_type& tq)`|Constructs the `timer_queue_registrator` and registers to the supplied `timer_queue`|
-|`timer_queue_registrator(std::reference_wrapper<queue_type> tq)`|Constructs the `timer_queue_registrator` and registers to the supplied `timer_queue`|
+|`timer_queue_registrator(std::reference_wrapper<queue_type> tqrw)`|Constructs the `timer_queue_registrator` and registers to the wrapped `timer_queue`|
 |`timer_queue_registrator(const timer_queue_registrator&) = delete`||
 |`timer_queue_registrator(timer_queue_registrator&& other) noexcept`|A `timer_queue_registrator` is move-constructible|
 |`timer_queue_registrator& operator=(const timer_queue_registrator&) = delete`||
@@ -128,3 +129,15 @@ A `timer_queue_registrator` is a RAII wrapper used to register a user (usually a
 |-|-|
 |`queue_type& queue()`| Returns a reference to the `timer_queue` supplied at construction|
 
+---
+
+## Performance
+#### One thread adding events and one thread processing events
+
+|Compiler |OS        |CPU  |events / second|
+|:-------:|----------|-----|--------------:|
+|g++12    |Fedora 37 |Intel(R) Xeon(R) CPU E5-2430 0 @ 2.20GHz| 700,000 - 1,400,000|
+|clang++15|Fedora 37 |Intel(R) Xeon(R) CPU E5-2430 0 @ 2.20GHz| 1,200,000 - 1,500,000|
+|g++12    |Ubuntu 22.04 WSL<br>Windows 11|Intel(R) Core(TM) i9-7920X CPU @ 2.90GHz|1,350,000 - 1,600,000|
+|clang++15|Ubuntu 22.04 WSL<br>Windows 11|Intel(R) Core(TM) i9-7920X CPU @ 2.90GHz|1,400,000 - 1,500,000|
+|VS 17.5.0<br>MSVC 19.35|Windows 11|Intel(R) Core(TM) i9-7920X CPU @ 2.90GHz|2,300,000 - 2,700,000|

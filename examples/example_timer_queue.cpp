@@ -124,7 +124,7 @@ using queue_5_t = lyn::mq::timer_queue<bool(int)>;
 
 void sync5(lyn::mq::timer_queue_registrator<queue_5_t> reg) {
     auto& q = reg.queue();
-    auto res = q.synchronize<int>([](int val) { return val*val; }, true);
+    auto res = q.synchronize<int>([](int val) { return val * val; }, true);
     q.shutdown();
     std::cout << "test5 got " << res << " via synchronize\n";
 }
@@ -134,8 +134,10 @@ void test5() {
     auto syncth = std::thread(&sync5, std::ref(q));
     queue_5_t::event_type ev;
     while(q.wait_pop(ev)) {
-        if(ev(10)) std::cout << "test5 event true\n";
-        else std::cout << "test5 event false\n";
+        if(ev(10))
+            std::cout << "test5 event true\n";
+        else
+            std::cout << "test5 event false\n";
     }
     syncth.join();
 }
