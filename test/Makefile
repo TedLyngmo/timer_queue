@@ -1,24 +1,56 @@
-CPPS = $(wildcard example*.cpp)
-OBJS = $(CPPS:.cpp=.o)
-EXES = $(CPPS:.cpp=)
+SRC := src
+DRIVER := $(SRC)/main.cpp
+DRIVERSRC = $(wildcard $(SRC)/ut*.cpp)
+CPPS = $(DRIVER) $(DRIVERSRC)
 
-CXXVER := -std=c++17
+BUILDDIR := build
+GCCOBJS = $(CPPS:$(SRC)/%.cpp=$(BUILDDIR)/%.g++.o)
+CLANGOBJS = $(CPPS:$(SRC)/%.cpp=$(BUILDDIR)/%.clang++.o)
+OBJS = $(GCCOBJS) $(CLANGOBJS)
 
-GCCOPTS := -Wall -Wextra -Werror
-CLANGOPTS := -Weverything -Wno-c++98-compat -Wno-padded -Wno-weak-vtables -Wno-ctad-maybe-unsupported
-OPTS = -o $@ $< $(CXXVER) -O3 -I../include -pedantic-errors -g -fsanitize=thread -pthread
+EXES = test-g++ test-clang++
 
-test : ut-g++ ut-clang++
-	./ut-g++ && ./ut-clang++
+STD = c++17
+CXXVER := -std=$(STD)
 
-ut-g++ : ut.cpp Makefile ../include/lyn/timer_queue.hpp
-	g++ $(OPTS) $(GCCOPTS)
+INCLUDES = -I../include -I.
 
-ut-clang++ : ut.cpp Makefile ../include/lyn/timer_queue.hpp
-	clang++ $(OPTS) $(CLANGOPTS)
+COMMONDEPS := Makefile ../include/lyn/timer_queue.hpp genmain.pl | builddir
+
+OPTS = -o $@ $(CXXVER) -O3 $(INCLUDES) -pedantic-errors -g -pthread -Werror
+GCCOPTS = -fsanitize=address,undefined,leak -Wall -Wextra $(OPTS)
+CLANGOPTS = -stdlib=libc++ -fsanitize=thread -Weverything -Wno-c++98-compat $(OPTS)
+
+TCOPTS = -Wno-unused-member-function -Wno-unused-template
+GCCTCOPTS = $(GCCOPTS) $(TCOPTS)
+CLANGTCOPTS = $(CLANGOPTS) $(TCOPTS) -Wno-padded -Wno-weak-vtables -Wno-ctad-maybe-unsupported -Wno-missing-prototypes -Wno-unused-member-function
+
+test : $(EXES)
+	./test-g++ && ./test-clang++ && echo OK
+
+test-g++ : $(GCCOBJS)
+	g++ $(GCCOBJS) $(GCCOPTS)
+
+test-clang++ : $(CLANGOBJS)
+	clang++ $(CLANGOBJS) $(CLANGOPTS)
+
+$(BUILDDIR)/%.g++.o : $(SRC)/%.cpp $(COMMONDEPS)
+	g++ -c $(GCCTCOPTS) $<
+
+$(BUILDDIR)/%.clang++.o : $(SRC)/%.cpp $(COMMONDEPS)
+	clang++ -c $(CLANGTCOPTS) $<
+
+$(DRIVER) : ./genmain.pl $(DRIVERSRC) builddir
+	./genmain.pl $(CPPS) > $@
+
+builddir:
+	mkdir -p $(BUILDDIR)
+
+tidy : $(CPPS)
+	clang-tidy -p . $(CPPS) -extra-arg=-$(CXXVER) -- $(INCLUDES)
 
 format:
-	clang-format -i *.hpp *.cpp
+	clang-format -i *.cpp
 
 clean:
-	rm -f $(EXES) $(OBJS)
+	rm -rf $(DRIVER) $(EXES) $(BUILDDIR)

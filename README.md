@@ -37,7 +37,7 @@ A timer queue provides constant time lookup of the first event to timeout, at th
 | `clock_type`       | Clock                                  |
 | `duration`         | Clock::duration                        |
 | `time_point`       | TimePoint                              |
-| `queue_type`       | _unspecified_ - Has a member function `bool pop(event_type& ev)` - see `wait_pop_all` |
+| `event_container`       | _unspecified_ - Has a member function `bool pop(event_type& ev)` - see `wait_pop_all` |
 | `schedule_at_type` | `std::pair<time_point, event_type>` |
 | `schedule_in_type` | `std::pair<duration, event_type>` |
 
@@ -77,7 +77,7 @@ A timer queue provides constant time lookup of the first event to timeout, at th
 | ![](./svg/spacer.svg)<br>Functions to extract events | |
 |-|-|
 |`bool wait_pop(event_type& ev)` | Wait until an event is due and populate `ev`. Returns `true` if an event was successfully extracted or `false` if the queue was shutdown. |
-|`bool wait_pop_all(queue_type& in_out)` | Wait until an event is due and extracts all events that are due. Returns `true` unless the queue was shutdown in which case it returns `false`. Use `in_out.pop(event_type&)` to extract events in a lock-free way. If there is only one thread processing events put in the queue and adding events to the queue is only done using `emplace_do` or `emplace_schedule` (where `std::iterator_traits<Iter>::value_type` is `event_type`), using `wait_pop_all` may be more efficient than extracting one event at a time with `wait_pop`. |
+|`bool wait_pop_all(event_container& in_out)` | Wait until an event is due and extracts all events that are due. Returns `true` unless the queue was shutdown in which case it returns `false`. Use `in_out.pop(event_type&)` to extract events in a lock-free way. If there is only one thread processing events put in the queue and adding events to the queue is only done using `emplace_do` or `emplace_schedule` (where `std::iterator_traits<Iter>::value_type` is `event_type`), using `wait_pop_all` may be more efficient than extracting one event at a time with `wait_pop`. |
 
 | ![](./svg/spacer.svg)<br>Misc. rarely used | |
 |-|-|
@@ -85,6 +85,7 @@ A timer queue provides constant time lookup of the first event to timeout, at th
 | `void shutdown()` | Shutdown the queue, leaving unprocessed events in the queue |
 | `void clear()` | Removes unprocessed events from the queue |
 | `void restart()` | Restarts the queue with unprocessed events intact |
+| `std::size_t size() const` | Returns the number of events in queue |
 | `bool operator!() const` | Returns `true` if `shutdown()` has been called, `false` otherwise |
 | `bool is_open() const` | Returns `true` if `shutdown()` has _not_ been called, `false`otherwise |
 | `explicit operator bool() const` | Returns the same as `is_open()` |
@@ -99,7 +100,7 @@ A timer queue provides constant time lookup of the first event to timeout, at th
 ### `lyn::mq::timer_queue_registrator`
 
 ```
-template<class queue_type>
+template<class QT>
 class timer_queue_registrator;
 ```
 A `timer_queue_registrator` is a RAII wrapper used to register a user (usually a thread) to a `timer_queue` and to unregister from the `timer_queue` when the `timer_queue_registrator` is destroyed.
@@ -108,11 +109,13 @@ A `timer_queue_registrator` is a RAII wrapper used to register a user (usually a
 
 |Parameter|Description|
 |-:|:-|
-|         **queue_type** | The specific `timer_queue` type|
+|         **QT** | The specific `timer_queue` type|
 
 |Member types| Definitions |
 |-:|:-|
-| `event_type`       | `queue_type::event_type` |
+| `timer_queue`       | QT |
+| `event_type`       | `timer_queue::event_type` |
+| `event_container`       | `timer_queue::event_container` |
 
 | ![](./svg/spacer.svg)<br>Public member functions | |
 |-|-|

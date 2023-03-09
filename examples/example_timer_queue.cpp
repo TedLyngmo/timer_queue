@@ -56,7 +56,7 @@ void test1() {
     q.restart();
     auto threeth = std::thread(&three, std::ref(q));
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    decltype(q)::queue_type iq;
+    decltype(q)::event_container iq;
     while(q.wait_pop_all(iq)) {
         q.shutdown();
         std::cout << iq.size() << '\n';
@@ -112,7 +112,7 @@ void test4() {
     t.emplace_do_in(11s, [] { std::cout << "11s passed\n"; });
     t.emplace_do_in(10s, [] { std::cout << "10s passed\n"; });
 
-    tester::queue_type q;
+    tester::event_container q;
     t.wait_pop_all_future(q);
 
     for(tester::event_type e; q.pop(e);) {
