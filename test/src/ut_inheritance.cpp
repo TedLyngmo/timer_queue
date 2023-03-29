@@ -10,6 +10,7 @@
 */
 #include "lyn/timer_queue.hpp"
 
+#include <chrono>
 #include <iostream>
 #include <thread>
 
@@ -76,6 +77,8 @@ private:
     }
 
 public:
+    using detail::base_queue::emplace_do_in;
+
     // wrappers for making `void()` events into `bool()` events
     template<class Event, std::enable_if_t<std::is_invocable_r_v<void, Event>, int> = 0>
     void emplace_do_in(duration dur, Event&& eve) {
@@ -136,6 +139,7 @@ using SpecialQueueRegistrator = lyn::mq::timer_queue_registrator<SpecialQueue>;
 
 void bgt(SpecialQueueRegistrator reg) {
     [[maybe_unused]] auto& queue = reg.queue();
+    queue.emplace_do_in(std::chrono::milliseconds(100), []{ return true; }); // use base class `emplace_do_in`
 }
 } // namespace
 
