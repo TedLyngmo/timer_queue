@@ -23,7 +23,7 @@ CLANGOPTS = -stdlib=libc++ -fsanitize=thread -Weverything -Wno-c++98-compat $(OP
 
 TCOPTS = -Wno-unused-member-function -Wno-unused-template
 GCCTCOPTS = $(GCCOPTS) $(TCOPTS)
-CLANGTCOPTS = $(CLANGOPTS) $(TCOPTS) -Wno-padded -Wno-weak-vtables -Wno-ctad-maybe-unsupported -Wno-missing-prototypes -Wno-unused-member-function
+CLANGTCOPTS = $(CLANGOPTS) $(TCOPTS) -Wno-padded -Wno-weak-vtables -Wno-ctad-maybe-unsupported -Wno-missing-prototypes -Wno-unused-member-function -Wno-c++98-compat-pedantic
 
 test : $(EXES)
 	./test-g++ && ./test-clang++ && echo OK
