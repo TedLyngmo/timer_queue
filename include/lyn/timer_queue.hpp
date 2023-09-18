@@ -36,6 +36,7 @@ For more information, please refer to <https://unlicense.org>
 #include <future>
 #include <iterator>
 #include <mutex>
+#include <optional>
 #include <queue>
 #include <type_traits>
 #include <utility>
@@ -135,51 +136,73 @@ public:
     // Two overloads for void and non-void returns in the event loop
     template<class Re, class Func, class LoopR = R,
              std::enable_if_t<std::is_same_v<LoopR, void> && std::is_same_v<LoopR, R>, int> = 0>
-    Re synchronize(Func&& func) {
-        std::promise<Re> prom;
-        std::future<Re> fut = prom.get_future();
-
+    auto synchronize(Func&& func) {
         if constexpr(std::is_same_v<Re, void>) {
+            std::promise<bool> prom;
+            std::future<bool> fut = prom.get_future();
             emplace_do_urgently([&prom, func = std::forward<Func>(func)](Args&&... args) {
-                func(std::forward<Args>(args)...);
-                prom.set_value();
+                try {
+                    func(std::forward<Args>(args)...);
+                    prom.set_value(true);
+                } catch(...) {
+                    prom.set_value(false);
+                }
             });
 
             fut.wait();
+            return fut.get(); // true if there was no exception, false if there was
         } else {
+            std::promise<std::optional<Re>> prom;
+            std::future<std::optional<Re>> fut = prom.get_future();
+
             emplace_do_urgently([&prom, func = std::forward<Func>(func)](Args&&... args) {
-                prom.set_value(func(std::forward<Args>(args)...));
+                try {
+                    prom.set_value(func(std::forward<Args>(args)...));
+                } catch(...) {
+                    prom.set_value(std::nullopt);
+                }
             });
 
             fut.wait();
-            return fut.get();
+            return fut.get(); // the optional<Re> has a value if there was no exception
         }
     }
 
     template<class Re, class Func, class LoopR = R,
              std::enable_if_t<!std::is_same_v<LoopR, void> && std::is_same_v<LoopR, R>, int> = 0>
-    Re synchronize(Func&& func, LoopR&& event_loop_return_value = R{}) {
-        std::promise<Re> prom;
-        std::future<Re> fut = prom.get_future();
-
+    auto synchronize(Func&& func, LoopR&& event_loop_return_value = R{}) {
         if constexpr(std::is_same_v<Re, void>) {
+            std::promise<bool> prom;
+            std::future<bool> fut = prom.get_future();
+
             emplace_do_urgently([&prom, elrv = std::forward<LoopR>(event_loop_return_value),
                                  func = std::forward<Func>(func)](Args&&... args) -> R {
-                func(std::forward<Args>(args)...);
-                prom.set_value();
+                try {
+                    func(std::forward<Args>(args)...);
+                    prom.set_value(true);
+                } catch(...) {
+                    prom.set_value(false);
+                }
                 return std::move(elrv);
             });
 
             fut.wait();
+            return fut.get(); // true if there was no exception, false if there was
         } else {
+            std::promise<std::optional<Re>> prom;
+            std::future<std::optional<Re>> fut = prom.get_future();
             emplace_do_urgently([&prom, elrv = std::forward<LoopR>(event_loop_return_value),
                                  func = std::forward<Func>(func)](Args&&... args) -> R {
-                prom.set_value(func(std::forward<Args>(args)...));
+                try {
+                    prom.set_value(func(std::forward<Args>(args)...));
+                } catch(...) {
+                    prom.set_value(std::nullopt);
+                }
                 return std::move(elrv);
             });
 
             fut.wait();
-            return fut.get();
+            return fut.get(); // the optional<Re> has a value if there was no exception
         }
     }
 

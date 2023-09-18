@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstdint>
 #include <iostream>
+#include <mutex>
 #include <thread>
 
 using namespace lyn::mq;
@@ -12,9 +13,10 @@ using queue_t = timer_queue<void()>;
 
 namespace { // put all in an anonymous namespace
 
-std::atomic<std::uintmax_t> count{};
+std::uintmax_t count{};
 constexpr std::uintmax_t iterations = 10000;
 constexpr std::size_t threads = 10;
+std::mutex mtx;
 
 // classes / functions
 
@@ -22,7 +24,10 @@ void bgt(timer_queue_registrator<queue_t> reg) {
     auto& queue = reg.queue();
 
     for(std::uintmax_t i = 0; i < iterations; ++i) {
-        queue.synchronize<void>([] { ++count; });
+        queue.synchronize<void>([] {
+            std::lock_guard lock(mtx);
+            ++count;
+        });
     }
 }
 
@@ -44,7 +49,7 @@ int main() {
             if(count == threads * iterations) tq.shutdown();
         }
     }
-    unsigned long long res = count;
+    std::uintmax_t res = count;
     std::cout << res << '\n';
 
     return !(res == threads * iterations);
