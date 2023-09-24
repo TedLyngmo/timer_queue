@@ -35,6 +35,7 @@ For more information, please refer to <https://unlicense.org>
 #include <functional>
 #include <future>
 #include <iterator>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <queue>
@@ -42,6 +43,44 @@ For more information, please refer to <https://unlicense.org>
 #include <utility>
 
 namespace lyn::mq {
+namespace detail {
+    // Make sure no promise goes unfulfilled without having to catch exceptions.
+    // This should really be a nested class inside timer_queue but older gcc's (at least 7.4) says deduction guides need
+    // to be at namespace scope.
+    template<class RR, class B>
+    struct prom_ctx {
+        prom_ctx(B bad) : bad_val(bad) {}
+        prom_ctx(const prom_ctx&) = delete;
+        prom_ctx(prom_ctx&&) = delete;
+        prom_ctx& operator=(const prom_ctx&) = delete;
+        prom_ctx& operator=(prom_ctx&&) = delete;
+
+        ~prom_ctx() {
+            if(has_bad_val) {
+                prom.set_value(std::move(bad_val));
+            }
+        }
+
+        std::future<RR> get_future() { return prom.get_future(); }
+
+        void set_value(const RR& value) {
+            prom.set_value(value);
+            has_bad_val = false;
+        }
+
+        void set_value(RR&& value) {
+            prom.set_value(std::move(value));
+            has_bad_val = false;
+        }
+
+        // bad_val should be a `std::optional<B>` - but gcc 7.4 does not like std::optional<std::nullopt_t>
+        std::promise<RR> prom{};
+        B bad_val;
+        bool has_bad_val = true;
+    };
+    template<class RR, class B>
+    prom_ctx(std::promise<RR>, B) -> prom_ctx<RR, B>;
+} // namespace detail
 
 template<class, class Clock = std::chrono::steady_clock, class TimePoint = typename Clock::time_point>
 class timer_queue;
@@ -131,36 +170,30 @@ public:
     bool operator!() const { return m_shutdown; }
     explicit operator bool() const { return !m_shutdown; }
 
+public:
     // Re is here the promised return value by added functor
     // R is what's returned in the event loop
     // Two overloads for void and non-void returns in the event loop
     template<class Re, class Func, class LoopR = R,
              std::enable_if_t<std::is_same_v<LoopR, void> && std::is_same_v<LoopR, R>, int> = 0>
-    auto synchronize(Func&& func) {
-        if constexpr(std::is_same_v<Re, void>) {
-            std::promise<bool> prom;
-            std::future<bool> fut = prom.get_future();
-            emplace_do_urgently([&prom, func = std::forward<Func>(func)](Args&&... args) {
-                try {
-                    func(std::forward<Args>(args)...);
-                    prom.set_value(true);
-                } catch(...) {
-                    prom.set_value(false);
-                }
+    [[nodiscard]] auto synchronize(Func&& func) {
+        if constexpr(std::is_same_v<Re, void>) { // will return bool, true == 0K
+            auto prom = std::make_shared<detail::prom_ctx<bool, bool>>(false);
+            std::future<bool> fut = prom->get_future();
+
+            emplace_do_urgently([prom = std::move(prom), func = std::forward<Func>(func)](Args&&... args) {
+                func(std::forward<Args>(args)...);
+                prom->set_value(true);
             });
 
             fut.wait();
             return fut.get(); // true if there was no exception, false if there was
-        } else {
-            std::promise<std::optional<Re>> prom;
-            std::future<std::optional<Re>> fut = prom.get_future();
+        } else {              // will return std::optional<Re>, non-empty optional == OK
+            auto prom = std::make_shared<detail::prom_ctx<std::optional<Re>, std::nullopt_t>>(std::nullopt);
+            std::future<std::optional<Re>> fut = prom->get_future();
 
-            emplace_do_urgently([&prom, func = std::forward<Func>(func)](Args&&... args) {
-                try {
-                    prom.set_value(func(std::forward<Args>(args)...));
-                } catch(...) {
-                    prom.set_value(std::nullopt);
-                }
+            emplace_do_urgently([prom = std::move(prom), func = std::forward<Func>(func)](Args&&... args) {
+                prom->set_value(func(std::forward<Args>(args)...));
             });
 
             fut.wait();
@@ -170,34 +203,26 @@ public:
 
     template<class Re, class Func, class LoopR = R,
              std::enable_if_t<!std::is_same_v<LoopR, void> && std::is_same_v<LoopR, R>, int> = 0>
-    auto synchronize(Func&& func, LoopR&& event_loop_return_value = R{}) {
-        if constexpr(std::is_same_v<Re, void>) {
-            std::promise<bool> prom;
-            std::future<bool> fut = prom.get_future();
+    [[nodiscard]] auto synchronize(Func&& func, LoopR&& event_loop_return_value = R{}) {
+        if constexpr(std::is_same_v<Re, void>) { // will return bool, true == 0K
+            auto prom = std::make_shared<detail::prom_ctx<bool, bool>>(false);
+            std::future<bool> fut = prom->get_future();
 
-            emplace_do_urgently([&prom, elrv = std::forward<LoopR>(event_loop_return_value),
+            emplace_do_urgently([prom = std::move(prom), elrv = std::forward<LoopR>(event_loop_return_value),
                                  func = std::forward<Func>(func)](Args&&... args) -> R {
-                try {
-                    func(std::forward<Args>(args)...);
-                    prom.set_value(true);
-                } catch(...) {
-                    prom.set_value(false);
-                }
+                func(std::forward<Args>(args)...);
+                prom->set_value(true);
                 return std::move(elrv);
             });
 
             fut.wait();
             return fut.get(); // true if there was no exception, false if there was
-        } else {
-            std::promise<std::optional<Re>> prom;
-            std::future<std::optional<Re>> fut = prom.get_future();
-            emplace_do_urgently([&prom, elrv = std::forward<LoopR>(event_loop_return_value),
+        } else {              // will return std::optional<Re>, non-empty optional == OK
+            auto prom = std::make_shared<detail::prom_ctx<std::optional<Re>, std::nullopt_t>>(std::nullopt);
+            std::future<std::optional<Re>> fut = prom->get_future();
+            emplace_do_urgently([prom = std::move(prom), elrv = std::forward<LoopR>(event_loop_return_value),
                                  func = std::forward<Func>(func)](Args&&... args) -> R {
-                try {
-                    prom.set_value(func(std::forward<Args>(args)...));
-                } catch(...) {
-                    prom.set_value(std::nullopt);
-                }
+                prom->set_value(func(std::forward<Args>(args)...));
                 return std::move(elrv);
             });
 
@@ -207,78 +232,98 @@ public:
     }
 
     template<class... EvArgs>
-    void emplace_do_at(time_point tpnt, EvArgs&&... args) {
+    bool emplace_do_at(time_point tpnt, EvArgs&&... args) {
         const std::lock_guard<std::mutex> lock(m_mutex);
-        m_queue.emplace(tpnt, std::forward<EvArgs>(args)...);
+        bool added = not m_shutdown;
+        if(added) m_queue.emplace(tpnt, std::forward<EvArgs>(args)...);
         m_cv.notify_all();
+        return added;
     }
 
     template<class... EvArgs>
-    void emplace_do_in(duration dur, EvArgs&&... args) {
+    bool emplace_do_in(duration dur, EvArgs&&... args) {
         auto attime = clock_type::now() + dur;
         const std::lock_guard<std::mutex> lock(m_mutex);
-        m_queue.emplace(attime, std::forward<EvArgs>(args)...);
+        bool added = not m_shutdown;
+        if(added) m_queue.emplace(attime, std::forward<EvArgs>(args)...);
         m_cv.notify_all();
+        return added;
     }
 
     template<class... EvArgs>
-    void emplace_do(EvArgs&&... args) {
+    bool emplace_do(EvArgs&&... args) {
         auto now = clock_type::now();
         const std::lock_guard<std::mutex> lock(m_mutex);
-        if(now < m_delay_until) {
-            now = m_delay_until;
-            m_delay_until += std::chrono::nanoseconds(1);
-        } else {
-            now += m_now_delay;
+        bool added = not m_shutdown;
+        if(added) {
+            if(now < m_delay_until) {
+                now = m_delay_until;
+                m_delay_until += std::chrono::nanoseconds(1);
+            } else {
+                now += m_now_delay;
+            }
+            m_queue.emplace(now, std::forward<EvArgs>(args)...);
         }
-        m_queue.emplace(now, std::forward<EvArgs>(args)...);
         m_cv.notify_all();
+        return added;
     }
 
     template<class... EvArgs>
-    void emplace_do_urgently(EvArgs&&... args) {
+    bool emplace_do_urgently(EvArgs&&... args) {
         const std::lock_guard<std::mutex> lock(m_mutex);
-        m_queue.emplace(m_seq, std::forward<EvArgs>(args)...);
-        m_seq += std::chrono::nanoseconds(1);
+        bool added = not m_shutdown;
+        if(added) {
+            m_queue.emplace(m_seq, std::forward<EvArgs>(args)...);
+            m_seq += std::chrono::nanoseconds(1);
+        }
         m_cv.notify_all();
+        return added;
     }
 
     // Add a bunch of events using iterators. Events will be processed in the order they are added.
     template<class Iter>
-    std::enable_if_t<std::is_same_v<event_type, typename std::iterator_traits<Iter>::value_type>> //
+    std::enable_if_t<std::is_same_v<event_type, typename std::iterator_traits<Iter>::value_type>, bool> //
     emplace_schedule(Iter first, Iter last) {
         auto now = clock_type::now();
         const std::lock_guard<std::mutex> lock(m_mutex);
-        if(now < m_delay_until) {
-            for(; first != last; ++first) {
-                m_queue.emplace(m_delay_until, *first);
-                m_delay_until += std::chrono::nanoseconds(1);
-            }
-        } else {
-            now += m_now_delay;
-            for(; first != last; ++first) {
-                m_queue.emplace(now, *first);
-                now += std::chrono::nanoseconds(1);
+        bool added = not m_shutdown;
+        if(added) {
+            if(now < m_delay_until) {
+                for(; first != last; ++first) {
+                    m_queue.emplace(m_delay_until, *first);
+                    m_delay_until += std::chrono::nanoseconds(1);
+                }
+            } else {
+                now += m_now_delay;
+                for(; first != last; ++first) {
+                    m_queue.emplace(now, *first);
+                    now += std::chrono::nanoseconds(1);
+                }
             }
         }
         m_cv.notify_all();
+        return added;
     }
 
     // Add a bunch of events with pre-calculated time_points using iterators.
     template<class Iter>
-    std::enable_if_t<std::is_same_v<schedule_at_type, typename std::iterator_traits<Iter>::value_type>>
+    std::enable_if_t<std::is_same_v<schedule_at_type, typename std::iterator_traits<Iter>::value_type>, bool>
     emplace_schedule(Iter first, Iter last) {
         const std::lock_guard<std::mutex> lock(m_mutex);
-        for(; first != last; ++first) {
-            auto&& [tpnt, eve] = *first;
-            m_queue.emplace(tpnt, eve);
+        bool added = not m_shutdown;
+        if(added) {
+            for(; first != last; ++first) {
+                auto&& [tpnt, eve] = *first;
+                m_queue.emplace(tpnt, eve);
+            }
         }
         m_cv.notify_all();
+        return added;
     }
 
     // Add a bunch of events with durations in relation to the supplied time_point T_0 using iterators.
     template<class Iter>
-    std::enable_if_t<std::is_same_v<schedule_in_type, typename std::iterator_traits<Iter>::value_type>>
+    std::enable_if_t<std::is_same_v<schedule_in_type, typename std::iterator_traits<Iter>::value_type>, bool>
     emplace_schedule(time_point T_0, Iter first, Iter last) {
         std::vector<schedule_at_type> ateve;
         if constexpr(std::is_base_of_v<std::random_access_iterator_tag,
@@ -288,14 +333,14 @@ public:
         std::transform(first, last, std::back_inserter(ateve), [&T_0](auto&& dureve) {
             return schedule_at_type{T_0 + dureve.first, dureve.second};
         });
-        emplace_schedule(std::move_iterator(ateve.begin()), std::move_iterator(ateve.end()));
+        return emplace_schedule(std::move_iterator(ateve.begin()), std::move_iterator(ateve.end()));
     }
 
     // Add a bunch of events with durations in relation to clock_type::now() using iterators.
     template<class Iter>
-    std::enable_if_t<std::is_same_v<schedule_in_type, typename std::iterator_traits<Iter>::value_type>>
+    std::enable_if_t<std::is_same_v<schedule_in_type, typename std::iterator_traits<Iter>::value_type>, bool>
     emplace_schedule(Iter first, Iter last) {
-        emplace_schedule(clock_type::now(), first, last);
+        return emplace_schedule(clock_type::now(), first, last);
     }
 
     bool wait_pop(event_type& eve) {

@@ -7,7 +7,7 @@
  * queue itself processes "bool()" events.
  * Currently the test is that it actually compiles without warnings and
  * it doesn't perform any actual actions.
-*/
+ */
 #include "lyn/timer_queue.hpp"
 
 #include <chrono>
@@ -139,7 +139,7 @@ using SpecialQueueRegistrator = lyn::mq::timer_queue_registrator<SpecialQueue>;
 
 void bgt(SpecialQueueRegistrator reg) {
     [[maybe_unused]] auto& queue = reg.queue();
-    queue.emplace_do_in(std::chrono::milliseconds(100), []{ return true; }); // use base class `emplace_do_in`
+    queue.emplace_do_in(std::chrono::milliseconds(100), [] { return true; }); // use base class `emplace_do_in`
 }
 } // namespace
 

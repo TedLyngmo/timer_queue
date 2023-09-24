@@ -16,7 +16,6 @@ namespace { // put all in an anonymous namespace
 std::uintmax_t count{};
 constexpr std::uintmax_t iterations = 10000;
 constexpr std::size_t threads = 10;
-std::mutex mtx;
 
 // classes / functions
 
@@ -24,10 +23,8 @@ void bgt(timer_queue_registrator<queue_t> reg) {
     auto& queue = reg.queue();
 
     for(std::uintmax_t i = 0; i < iterations; ++i) {
-        queue.synchronize<void>([] {
-            std::lock_guard lock(mtx);
-            ++count;
-        });
+        auto res = queue.synchronize<void>([] { ++count; });
+        if(not res) break;
     }
 }
 
@@ -49,9 +46,8 @@ int main() {
             if(count == threads * iterations) tq.shutdown();
         }
     }
-    std::uintmax_t res = count;
-    std::cout << res << '\n';
+    std::cout << count << '\n';
 
-    return !(res == threads * iterations);
+    return !(count == threads * iterations);
 }
 } // namespace ut_synchronize_stress
