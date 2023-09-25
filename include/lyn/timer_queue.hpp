@@ -186,7 +186,6 @@ public:
                 prom->set_value(true);
             });
 
-            fut.wait();
             return fut.get(); // true if there was no exception, false if there was
         } else {              // will return std::optional<Re>, non-empty optional == OK
             auto prom = std::make_shared<detail::prom_ctx<std::optional<Re>, std::nullopt_t>>(std::nullopt);
@@ -196,7 +195,6 @@ public:
                 prom->set_value(func(std::forward<Args>(args)...));
             });
 
-            fut.wait();
             return fut.get(); // the optional<Re> has a value if there was no exception
         }
     }
@@ -215,18 +213,17 @@ public:
                 return std::move(elrv);
             });
 
-            fut.wait();
             return fut.get(); // true if there was no exception, false if there was
         } else {              // will return std::optional<Re>, non-empty optional == OK
             auto prom = std::make_shared<detail::prom_ctx<std::optional<Re>, std::nullopt_t>>(std::nullopt);
             std::future<std::optional<Re>> fut = prom->get_future();
+
             emplace_do_urgently([prom = std::move(prom), elrv = std::forward<LoopR>(event_loop_return_value),
                                  func = std::forward<Func>(func)](Args&&... args) -> R {
                 prom->set_value(func(std::forward<Args>(args)...));
                 return std::move(elrv);
             });
 
-            fut.wait();
             return fut.get(); // the optional<Re> has a value if there was no exception
         }
     }
