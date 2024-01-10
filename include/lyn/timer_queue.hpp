@@ -176,22 +176,22 @@ public:
     // Two overloads for void and non-void returns in the event loop
     template<class Re, class Func, class LoopR = R,
              std::enable_if_t<std::is_same_v<LoopR, void> && std::is_same_v<LoopR, R>, int> = 0>
-    [[nodiscard]] auto synchronize(Func&& func) {
+    [[nodiscard]] auto synchronize(Func&& function) {
         if constexpr(std::is_same_v<Re, void>) { // will return bool, true == 0K
-            auto prom = std::make_shared<detail::prom_ctx<bool, bool>>(false);
-            std::future<bool> fut = prom->get_future();
+            auto promise = std::make_shared<detail::prom_ctx<bool, bool>>(false);
+            std::future<bool> fut = promise->get_future();
 
-            emplace_do_urgently([prom = std::move(prom), func = std::forward<Func>(func)](Args&&... args) {
+            emplace_do_urgently([prom = std::move(promise), func = std::forward<Func>(function)](Args&&... args) {
                 func(std::forward<Args>(args)...);
                 prom->set_value(true);
             });
 
             return fut.get(); // true if there was no exception, false if there was
         } else {              // will return std::optional<Re>, non-empty optional == OK
-            auto prom = std::make_shared<detail::prom_ctx<std::optional<Re>, std::nullopt_t>>(std::nullopt);
-            std::future<std::optional<Re>> fut = prom->get_future();
+            auto promise = std::make_shared<detail::prom_ctx<std::optional<Re>, std::nullopt_t>>(std::nullopt);
+            std::future<std::optional<Re>> fut = promise->get_future();
 
-            emplace_do_urgently([prom = std::move(prom), func = std::forward<Func>(func)](Args&&... args) {
+            emplace_do_urgently([prom = std::move(promise), func = std::forward<Func>(function)](Args&&... args) {
                 prom->set_value(func(std::forward<Args>(args)...));
             });
 
@@ -201,13 +201,13 @@ public:
 
     template<class Re, class Func, class LoopR = R,
              std::enable_if_t<!std::is_same_v<LoopR, void> && std::is_same_v<LoopR, R>, int> = 0>
-    [[nodiscard]] auto synchronize(Func&& func, LoopR&& event_loop_return_value = R{}) {
+    [[nodiscard]] auto synchronize(Func&& function, LoopR&& event_loop_return_value = R{}) {
         if constexpr(std::is_same_v<Re, void>) { // will return bool, true == 0K
-            auto prom = std::make_shared<detail::prom_ctx<bool, bool>>(false);
-            std::future<bool> fut = prom->get_future();
+            auto promise = std::make_shared<detail::prom_ctx<bool, bool>>(false);
+            std::future<bool> fut = promise->get_future();
 
-            emplace_do_urgently([prom = std::move(prom), elrv = std::forward<LoopR>(event_loop_return_value),
-                                 func = std::forward<Func>(func)](Args&&... args) -> R {
+            emplace_do_urgently([prom = std::move(promise), elrv = std::forward<LoopR>(event_loop_return_value),
+                                 func = std::forward<Func>(function)](Args&&... args) -> R {
                 func(std::forward<Args>(args)...);
                 prom->set_value(true);
                 return std::move(elrv);
@@ -215,11 +215,11 @@ public:
 
             return fut.get(); // true if there was no exception, false if there was
         } else {              // will return std::optional<Re>, non-empty optional == OK
-            auto prom = std::make_shared<detail::prom_ctx<std::optional<Re>, std::nullopt_t>>(std::nullopt);
-            std::future<std::optional<Re>> fut = prom->get_future();
+            auto promise = std::make_shared<detail::prom_ctx<std::optional<Re>, std::nullopt_t>>(std::nullopt);
+            std::future<std::optional<Re>> fut = promise->get_future();
 
-            emplace_do_urgently([prom = std::move(prom), elrv = std::forward<LoopR>(event_loop_return_value),
-                                 func = std::forward<Func>(func)](Args&&... args) -> R {
+            emplace_do_urgently([prom = std::move(promise), elrv = std::forward<LoopR>(event_loop_return_value),
+                                 func = std::forward<Func>(function)](Args&&... args) -> R {
                 prom->set_value(func(std::forward<Args>(args)...));
                 return std::move(elrv);
             });

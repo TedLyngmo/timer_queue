@@ -69,8 +69,8 @@ public:
 
 private:
     template<class Event>
-    auto make_void_event_into_bool(Event&& eve) {
-        return [eve = std::forward<Event>(eve)] {
+    auto make_void_event_into_bool(Event&& event) {
+        return [eve = std::forward<Event>(event)] {
             eve();
             return true;
         };
