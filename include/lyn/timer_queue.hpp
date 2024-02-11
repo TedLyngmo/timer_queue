@@ -177,7 +177,7 @@ public:
     template<class Re, class Func, class LoopR = R,
              std::enable_if_t<std::is_same_v<LoopR, void> && std::is_same_v<LoopR, R>, int> = 0>
     [[nodiscard]] auto synchronize(Func&& function) {
-        if constexpr(std::is_same_v<Re, void>) { // will return bool, true == 0K
+        if constexpr(std::is_void_v<Re>) { // will return bool, true == 0K
             auto promise = std::make_shared<detail::prom_ctx<bool, bool>>(false);
             std::future<bool> fut = promise->get_future();
 
@@ -200,9 +200,9 @@ public:
     }
 
     template<class Re, class Func, class LoopR = R,
-             std::enable_if_t<!std::is_same_v<LoopR, void> && std::is_same_v<LoopR, R>, int> = 0>
+             std::enable_if_t<!std::is_void_v<LoopR> && std::is_same_v<LoopR, R>, int> = 0>
     [[nodiscard]] auto synchronize(Func&& function, LoopR&& event_loop_return_value = R{}) {
-        if constexpr(std::is_same_v<Re, void>) { // will return bool, true == 0K
+        if constexpr(std::is_void_v<Re>) { // will return bool, true == 0K
             auto promise = std::make_shared<detail::prom_ctx<bool, bool>>(false);
             std::future<bool> fut = promise->get_future();
 
