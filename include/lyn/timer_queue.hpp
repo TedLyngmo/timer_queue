@@ -80,13 +80,30 @@ namespace detail {
     };
     template<class RR, class B>
     prom_ctx(std::promise<RR>, B) -> prom_ctx<RR, B>;
+
+    template<class Clock, class TimePoint>
+    struct delay {
+        using duration = typename Clock::duration;
+        using time_point = TimePoint;
+        delay() = default;
+        delay(const duration& dur) : m_now_delay(dur) {}
+        duration get_now_delay() const { return m_now_delay; }
+
+        duration m_now_delay{};
+        time_point m_delay_until{};
+    };
+    struct empty {};
 } // namespace detail
 
-template<class, class Clock = std::chrono::steady_clock, class TimePoint = typename Clock::time_point>
+template<class, class Clock = std::chrono::steady_clock, class TimePoint = typename Clock::time_point,
+         bool SetDelayEnabled = true>
 class timer_queue;
 
-template<class R, class... Args, class Clock, class TimePoint>
-class timer_queue<R(Args...), Clock, TimePoint> {
+template<class R, class... Args, class Clock, class TimePoint, bool SetDelayEnabled>
+class timer_queue<R(Args...), Clock, TimePoint, SetDelayEnabled> :
+    std::conditional_t<SetDelayEnabled, detail::delay<Clock, TimePoint>, detail::empty> {
+    using base = std::conditional_t<SetDelayEnabled, detail::delay<Clock, TimePoint>, detail::empty>;
+
 public:
     using event_type = std::function<R(Args...)>;
     using clock_type = Clock;
@@ -118,9 +135,10 @@ public:
         }
     };
 
-    explicit timer_queue(duration now_delay) : m_now_delay(std::move(now_delay)) {}
+    template<bool E = SetDelayEnabled, std::enable_if_t<E, int> = 0>
+    explicit timer_queue(const duration& now_delay) : base(now_delay) {}
 
-    timer_queue() : timer_queue(std::chrono::nanoseconds(0)) {}
+    timer_queue() = default;
     timer_queue(const timer_queue&) = delete;
     timer_queue(timer_queue&&) = delete;
     timer_queue& operator=(const timer_queue&) = delete;
@@ -160,10 +178,11 @@ public:
         m_queue = event_container{};
     }
 
-    void set_delay_until(time_point tpnt) {
+    template<bool E = SetDelayEnabled>
+    std::enable_if_t<E> set_delay_until(const time_point& tpnt) {
         const std::lock_guard<std::mutex> lock(m_mutex);
         // don't let it move backwards in time
-        if(m_delay_until < tpnt) m_delay_until = std::move(tpnt);
+        if(this->m_delay_until < tpnt) this->m_delay_until = tpnt;
     }
 
     bool is_open() const { return !m_shutdown; }
@@ -253,11 +272,13 @@ public:
         const std::lock_guard<std::mutex> lock(m_mutex);
         bool added = not m_shutdown;
         if(added) {
-            if(now < m_delay_until) {
-                now = m_delay_until;
-                m_delay_until += std::chrono::nanoseconds(1);
-            } else {
-                now += m_now_delay;
+            if constexpr(SetDelayEnabled) {
+                if(now < this->m_delay_until) {
+                    now = this->m_delay_until;
+                    this->m_delay_until += std::chrono::nanoseconds(1);
+                } else {
+                    now += this->m_now_delay;
+                }
             }
             m_queue.emplace(now, std::forward<EvArgs>(args)...);
         }
@@ -285,13 +306,20 @@ public:
         const std::lock_guard<std::mutex> lock(m_mutex);
         bool added = not m_shutdown;
         if(added) {
-            if(now < m_delay_until) {
-                for(; first != last; ++first) {
-                    m_queue.emplace(m_delay_until, *first);
-                    m_delay_until += std::chrono::nanoseconds(1);
+            if constexpr(SetDelayEnabled) {
+                if(now < this->m_delay_until) {
+                    for(; first != last; ++first) {
+                        m_queue.emplace(this->m_delay_until, *first);
+                        this->m_delay_until += std::chrono::nanoseconds(1);
+                    }
+                } else {
+                    now += this->m_now_delay;
+                    for(; first != last; ++first) {
+                        m_queue.emplace(now, *first);
+                        now += std::chrono::nanoseconds(1);
+                    }
                 }
             } else {
-                now += m_now_delay;
                 for(; first != last; ++first) {
                     m_queue.emplace(now, *first);
                     now += std::chrono::nanoseconds(1);
@@ -327,9 +355,8 @@ public:
                                        typename std::iterator_traits<Iter>::iterator_category>) {
             ateve.reserve(static_cast<typename decltype(ateve)::size_type>(std::distance(first, last)));
         }
-        std::transform(first, last, std::back_inserter(ateve), [&T_0](auto&& dureve) {
-            return schedule_at_type{T_0 + dureve.first, dureve.second};
-        });
+        std::transform(first, last, std::back_inserter(ateve),
+                       [&T_0](auto&& dureve) { return schedule_at_type{T_0 + dureve.first, dureve.second}; });
         return emplace_schedule(std::move_iterator(ateve.begin()), std::move_iterator(ateve.end()));
     }
 
@@ -413,7 +440,6 @@ protected:
         return true;
     }
 
-    duration get_now_delay() const { return m_now_delay; }
     time_point get_seq() const { return m_seq; }
 
 private:
@@ -421,12 +447,7 @@ private:
     mutable std::mutex m_mutex{};
     std::condition_variable m_cv{};
     std::atomic<bool> m_shutdown{};
-    duration m_now_delay;
-    time_point m_delay_until{};
-    // m_seq is used for to make sure events are executed in the order they are put in the queue which can be used
-    // to extend the queue with adding a bunch of elements at the same time and to guarantee them to be extracted
-    // together in the exact order they were put in.
-    time_point m_seq{};
+    time_point m_seq{}; // used to make sure events are executed in the order they are put in the queue
     unsigned m_users{};
 };
 

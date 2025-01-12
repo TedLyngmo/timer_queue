@@ -12,10 +12,11 @@ Classes defined in header [`lyn/timer_queue.hpp`](include/lyn/timer_queue.hpp).
 template<
     class R, class... Args
     class Clock = std::chrono::steady_clock,
-    class TimePoint = std::chrono::time_point<Clock>
+    class TimePoint = std::chrono::time_point<Clock>,
+    bool SetDelayEnabled = true
 > class timer_queue; /* undefined */
 
-template<class R, class... Args, class Clock, class TimePoint>
+template<class R, class... Args, class Clock, class TimePoint, bool SetDelayEnabled>
 class timer_queue<R(Args...), Clock, TimePoint>;
 ```
 
@@ -26,10 +27,11 @@ A timer queue provides constant time lookup of the first event to timeout, at th
 
 |Parameter|Description|
 |-:|:-|
-|         **R** | The return type of events to store in the queue.                              |
-|   **Args...** | The arguments to pass to events stored in the queue.                          |
-|     **Clock** | The clock type used to keep time. `std::chrono::steady_clock` by default.     |
-| **TimePoint** | `std::chrono::time_point<Clock>`                                              |
+|         **R**       | The return type of events to store in the queue.                              |
+|   **Args...**       | The arguments to pass to events stored in the queue.                          |
+|     **Clock**       | The clock type used to keep time. `std::chrono::steady_clock` by default.     |
+| **TimePoint**       | `std::chrono::time_point<Clock>`                                              |
+| **SetDelayEnabled** | If `true`, enables `set_delay_until` and related functionality.               |
 
 |Member types| Definitions |
 |-:|:-|
@@ -37,7 +39,7 @@ A timer queue provides constant time lookup of the first event to timeout, at th
 | `clock_type`       | Clock                                  |
 | `duration`         | Clock::duration                        |
 | `time_point`       | TimePoint                              |
-| `event_container`       | _unspecified_ - Has a member function `bool pop(event_type& ev)` - see `wait_pop_all` |
+| `event_container`  | _unspecified_ - Has a member function `bool pop(event_type& ev)` - see `wait_pop_all` |
 | `schedule_at_type` | `std::pair<time_point, event_type>` |
 | `schedule_in_type` | `std::pair<duration, event_type>` |
 
@@ -46,8 +48,8 @@ A timer queue provides constant time lookup of the first event to timeout, at th
 
 | ![](./svg/spacer.svg)<br>Public member functions | |
 |-|-|
-|`timer_queue()` | Constructs the `timer_queue` with zero delay for events added using `emplace_do` |
-|`explicit timer_queue(duration now_delay)` | Constructs the `timer_queue` with `now_delay` delay for events added using `emplace_do` |
+|`timer_queue()` | Constructs the `timer_queue` (with zero delay for events added using `emplace_do`) |
+|`explicit timer_queue(const duration& now_delay)` | Constructs the `timer_queue` with `now_delay` delay for events added using `emplace_do`. This overload only participates in overload resolution if `SetDelayEnabled` is `true`. |
 |`timer_queue(const timer_queue&) = delete`||
 |`timer_queue(timer_queue&&) = delete`||
 |`timer_queue& operator=(const timer_queue&) = delete`||
@@ -56,14 +58,14 @@ A timer queue provides constant time lookup of the first event to timeout, at th
 
 | ![](./svg/spacer.svg)<br>Functions to add single events | |
 |-|-|
-|`void emplace_do(event_type ev)`| Add an event that is due after `now_delay`. This is also affected by `set_delay_until` (see below). |
+|`void emplace_do(event_type ev)`| Add an event. If `SetDelayEnabled` is `true`, adds `now_delay` to the current time. This is also affected by `set_delay_until` (see below). |
 |`void emplace_do_urgently(event_type ev)`| Add an event, placing the event last among those added with `emplace_do_urgently`, but before all other events in queue |
 |`void emplace_do_at(time_point tp, event_type ev)` | Add an event that is due at the specified `time_point` |
 |`void emplace_do_in(duration dur, event_type)` | Add an event that is due after the specified `duration` |
 
 | ![](./svg/spacer.svg)<br>Functions to add events in bulk | |
 |-|-|
-|`template<class Iter>`<br>`void emplace_schedule(Iter first, Iter last)` | Place a number of events in queue that are due after `now_delay`. This overload only participates in overload resolution if `std::iterator_traits<Iter>::value_type` is `event_type`. This overload is also affected by `set_delay_until` (see below). |
+|`template<class Iter>`<br>`void emplace_schedule(Iter first, Iter last)` | Place a number of events in queue. If `SetDelayEnabled`, adds `now_delay` to the current time. This overload only participates in overload resolution if `std::iterator_traits<Iter>::value_type` is `event_type`. This overload is also affected by `set_delay_until` (see below). |
 |`template<class Iter>`<br>`void emplace_schedule(Iter first, Iter last)` | Place a number of events in queue. This overload only participates in overload resolution if `std::iterator_traits<Iter>::value_type` is `schedule_at_type`.|
 |`template<class Iter>`<br>`void emplace_schedule(Iter first, Iter last)` | Place a number of events in queue in relation to `clock_type::now()`. This overload only participates in overload resolution if `std::iterator_traits<Iter>::value_type` is `schedule_in_type`.|
 |`template<class Iter>`<br>`void emplace_schedule(time_point T0, Iter first, Iter last)` | Place a number of events in queue in relation to `T0`. This overload only participates in overload resolution if `std::iterator_traits<Iter>::value_type` is `schedule_in_type`.|
@@ -81,7 +83,7 @@ A timer queue provides constant time lookup of the first event to timeout, at th
 
 | ![](./svg/spacer.svg)<br>Misc. rarely used | |
 |-|-|
-|`void set_delay_until(time_point tp)`|Delay all events added with `emplace_do` and `emplace_schedule` (where `std::iterator_traits<Iter>::value_type` is `event_type`) until the supplied `time_point`. Events added while `tp` has not yet occured will be processed in the order they were added, only delayed until after `tp`.|
+|`void set_delay_until(const time_point& tp)`|Delay all events added with `emplace_do` and `emplace_schedule` (where `std::iterator_traits<Iter>::value_type` is `event_type`) until the supplied `time_point`. Events added while `tp` has not yet occured will be processed in the order they were added, only delayed until after `tp`. This function only exists if `SetDelayEnabled` is `true`. |
 | `void shutdown()` | Shutdown the queue, leaving unprocessed events in the queue |
 | `void clear()` | Removes unprocessed events from the queue |
 | `void restart()` | Restarts the queue with unprocessed events intact |
@@ -113,9 +115,9 @@ A `timer_queue_registrator` is a RAII wrapper used to register a user (usually a
 
 |Member types| Definitions |
 |-:|:-|
-| `timer_queue`       | QT |
+| `timer_queue`      | QT |
 | `event_type`       | `timer_queue::event_type` |
-| `event_container`       | `timer_queue::event_container` |
+| `event_container`  | `timer_queue::event_container` |
 
 | ![](./svg/spacer.svg)<br>Public member functions | |
 |-|-|
@@ -135,7 +137,7 @@ A `timer_queue_registrator` is a RAII wrapper used to register a user (usually a
 ---
 
 ## Performance
-#### One thread adding events and one thread processing events
+#### One thread adding events and one thread processing events with `SetDelayEnabled = true`
 
 |Compiler |OS        |CPU  |events / second|
 |:-------:|----------|-----|--------------:|
