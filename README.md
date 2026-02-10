@@ -21,7 +21,7 @@ class timer_queue<R(Args...), Clock, TimePoint>;
 ```
 
 ---
-A timer queue provides constant time lookup of the first event to timeout, at the expense of logarithmic insertion and extraction.
+A timer queue provides constant-time lookup of the first event to timeout, at the expense of logarithmic insertion and extraction.
 
 #### Template parameters
 
@@ -59,21 +59,21 @@ A timer queue provides constant time lookup of the first event to timeout, at th
 | ![](./svg/spacer.svg)<br>Functions to add single events | |
 |-|-|
 |`void emplace_do(event_type ev)`| Add an event. If `SetDelayEnabled` is `true`, adds `now_delay` to the current time. This is also affected by `set_delay_until` (see below). |
-|`void emplace_do_urgently(event_type ev)`| Add an event, placing the event last among those added with `emplace_do_urgently`, but before all other events in queue |
+|`void emplace_do_urgently(event_type ev)`| Add an event, placing the event last among those added with `emplace_do_urgently`, but before all other events in the queue |
 |`void emplace_do_at(time_point tp, event_type ev)` | Add an event that is due at the specified `time_point` |
 |`void emplace_do_in(duration dur, event_type)` | Add an event that is due after the specified `duration` |
 
 | ![](./svg/spacer.svg)<br>Functions to add events in bulk | |
 |-|-|
-|`template<class Iter>`<br>`void emplace_schedule(Iter first, Iter last)` | Place a number of events in queue. If `SetDelayEnabled`, adds `now_delay` to the current time. This overload only participates in overload resolution if `std::iterator_traits<Iter>::value_type` is `event_type`. This overload is also affected by `set_delay_until` (see below). |
-|`template<class Iter>`<br>`void emplace_schedule(Iter first, Iter last)` | Place a number of events in queue. This overload only participates in overload resolution if `std::iterator_traits<Iter>::value_type` is `schedule_at_type`.|
-|`template<class Iter>`<br>`void emplace_schedule(Iter first, Iter last)` | Place a number of events in queue in relation to `clock_type::now()`. This overload only participates in overload resolution if `std::iterator_traits<Iter>::value_type` is `schedule_in_type`.|
-|`template<class Iter>`<br>`void emplace_schedule(time_point T0, Iter first, Iter last)` | Place a number of events in queue in relation to `T0`. This overload only participates in overload resolution if `std::iterator_traits<Iter>::value_type` is `schedule_in_type`.|
+|`template<class Iter>`<br>`void emplace_schedule(Iter first, Iter last)` | Place a number of events in the queue. If `SetDelayEnabled`, adds `now_delay` to the current time. This overload only participates in overload resolution if `std::iterator_traits<Iter>::value_type` is `event_type`. This overload is also affected by `set_delay_until` (see below). |
+|`template<class Iter>`<br>`void emplace_schedule(Iter first, Iter last)` | Place a number of events in the queue. This overload only participates in overload resolution if `std::iterator_traits<Iter>::value_type` is `schedule_at_type`.|
+|`template<class Iter>`<br>`void emplace_schedule(Iter first, Iter last)` | Place a number of events in the queue in relation to `clock_type::now()`. This overload only participates in overload resolution if `std::iterator_traits<Iter>::value_type` is `schedule_in_type`.|
+|`template<class Iter>`<br>`void emplace_schedule(time_point T0, Iter first, Iter last)` | Place a number of events in the queue in relation to `T0`. This overload only participates in overload resolution if `std::iterator_traits<Iter>::value_type` is `schedule_in_type`.|
 
 | ![](./svg/spacer.svg)<br>Functions to perform synchronized tasks | |
 |-|-|
-|`template<class Re, class Func>`<br>`Re synchronize(Func&& func)`|Execute `func`, that should return `Re`, in the task queue and wait for the execution to complete. This overload only participates in overload resolution if `R` is `void`.|
-|`template<class Re, class Func>`<br>`Re synchronize(Func&& func, R&& event_loop_return_value = R{})`|Execute `func`, that should return `Re`, in the task queue and wait for the execution to complete. The value returned by the event when executed in the event loop is stored in `event_loop_return_value`. This overload only participates in overload resolution if `R` is not `void`.|
+|`template<class Re, class Func>`<br>`Re synchronize(Func&& func)`|Execute `func`, which should return `Re`, in the task queue and wait for the execution to complete. This overload only participates in overload resolution if `R` is `void`.|
+|`template<class Re, class Func>`<br>`Re synchronize(Func&& func, R&& event_loop_return_value = R{})`|Execute `func`, which should return `Re`, in the task queue and wait for the execution to complete. The value returned by the event when executed in the event loop is stored in `event_loop_return_value`. This overload only participates in overload resolution if `R` is not `void`.|
 
 
 | ![](./svg/spacer.svg)<br>Functions to extract events | |
@@ -87,9 +87,9 @@ A timer queue provides constant time lookup of the first event to timeout, at th
 | `void shutdown()` | Shutdown the queue, leaving unprocessed events in the queue |
 | `void clear()` | Removes unprocessed events from the queue |
 | `void restart()` | Restarts the queue with unprocessed events intact |
-| `std::size_t size() const` | Returns the number of events in queue |
+| `std::size_t size() const` | Returns the number of events in the queue |
 | `bool operator!() const` | Returns `true` if `shutdown()` has been called, `false` otherwise |
-| `bool is_open() const` | Returns `true` if `shutdown()` has _not_ been called, `false`otherwise |
+| `bool is_open() const` | Returns `true` if `shutdown()` has _not_ been called, `false` otherwise |
 | `explicit operator bool() const` | Returns the same as `is_open()` |
 
 | ![](./svg/spacer.svg)<br>Queue registration | Usually only used by `lyn::mq::timer_queue_registrator` |
@@ -128,7 +128,7 @@ A `timer_queue_registrator` is a RAII wrapper used to register a user (usually a
 |`timer_queue_registrator(timer_queue_registrator&& other) noexcept`|A `timer_queue_registrator` is move-constructible|
 |`timer_queue_registrator& operator=(const timer_queue_registrator&) = delete`||
 |`timer_queue_registrator& operator=(timer_queue_registrator&& other) noexcept`|A `timer_queue_registrator` is move-assignable|
-|`~timer_queue_registrator()`|Unregisters from the `timer_queue` supplied at construction|
+|`~timer_queue_registrator()`|Unregisters from the `timer_queue` supplied during construction|
 
 | ![](./svg/spacer.svg)<br>Observers ||
 |-|-|

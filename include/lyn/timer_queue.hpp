@@ -43,6 +43,11 @@ SOFTWARE.
 #include <type_traits>
 #include <utility>
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wthread-safety-negative"
+#endif
+
 namespace lyn::mq {
 namespace detail {
     // Make sure no promise goes unfulfilled without having to catch exceptions.
@@ -482,5 +487,9 @@ private:
 };
 
 } // namespace lyn::mq
+
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
 #endif
