@@ -73,7 +73,7 @@ void sync2(lyn::mq::timer_queue_registrator<queue_2_t> reg) {
     auto& q = reg.queue();
     auto res = q.synchronize<double>([](int i, double d) -> double { return i + d; });
     q.shutdown();
-    std::cout << "got " << res << " via synchronize\n";
+    std::cout << "got " << res.value() << " via synchronize\n";
 }
 
 void test2() {
@@ -126,7 +126,7 @@ void sync5(lyn::mq::timer_queue_registrator<queue_5_t> reg) {
     auto& q = reg.queue();
     auto res = q.synchronize<int>([](int val) { return val * val; }, true);
     q.shutdown();
-    std::cout << "test5 got " << res << " via synchronize\n";
+    std::cout << "test5 got " << res.value() << " via synchronize\n";
 }
 
 void test5() {

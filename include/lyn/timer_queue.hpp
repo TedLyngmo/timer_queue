@@ -118,25 +118,33 @@ public:
     using schedule_at_type = std::pair<time_point, event_type>;
     using schedule_in_type = std::pair<duration, event_type>;
 
+    static_assert(std::is_nothrow_move_constructible_v<event_type>);
+
 private:
     struct TimedEvent {
         template<class... EvArgs>
         explicit TimedEvent(const time_point& tpnt, EvArgs&&... args) :
             StartTime{tpnt}, m_event{std::forward<EvArgs>(args)...} {}
 
-        bool operator<(const TimedEvent& rhs) const { return rhs.StartTime < StartTime; }
+        bool operator<(const TimedEvent& rhs) const noexcept { return rhs.StartTime < StartTime; }
         time_point StartTime;
         event_type m_event;
     };
+
+    static_assert(std::is_nothrow_move_constructible_v<TimedEvent>);
 
 public:
     struct event_container : std::priority_queue<TimedEvent> {
         using std::priority_queue<TimedEvent>::pop;
 
+        event_type extract_top_event() noexcept {
+            auto rv = std::move(const_cast<TimedEvent&>(this->top()).m_event);
+            this->pop();
+            return rv;
+        }
         bool pop(event_type& eve) {
             if(this->empty()) return false;
-            eve = std::move(this->top().m_event); // extract event
-            this->pop();
+            eve = extract_top_event();
             return true;
         }
     };
@@ -386,8 +394,7 @@ public:
         }
         if(m_shutdown) return false; // time to quit
 
-        eve = std::move(m_queue.top().m_event); // extract event
-        m_queue.pop();
+        eve = m_queue.extract_top_event(); // extract event
 
         return true;
     }
@@ -408,8 +415,8 @@ public:
 
         auto now = clock_type::now();
         while(!m_queue.empty() && now >= m_queue.top().StartTime) {
-            in_out.emplace(std::move(m_queue.top()));
-            m_queue.pop();
+            auto tp = m_queue.top().StartTime;
+            in_out.emplace(tp, m_queue.extract_top_event());
         }
 
         return true;
@@ -426,8 +433,7 @@ protected:
         }
         if(m_shutdown) return false; // time to quit
 
-        eve = std::move(m_queue.top().m_event); // extract event
-        m_queue.pop();
+        eve = m_queue.extract_top_event();
 
         return true;
     }
